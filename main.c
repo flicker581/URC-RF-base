@@ -242,17 +242,17 @@ static void printdebug(uint32_t debug) {
 	 // save the address
 	 urc_address = urc_address_tmp;
 	}
-    if (header_counter == 70) {
+    if (header_counter == 70) { // Magic number of pulses and spaces in the header
 	 // Analyze URC address and set state accordingly
 #if URC_ID!=0
 	 if ((urc_address & 0xF) == URC_ID && (urc_address & (URC_CHANNEL_MASK << 4))) {
-#endif /* URC_ID!=0 */
 	  state = STATE_PASSTHROUGH;
-#if URC_ID!=0
 	 }
 	 else {
 	  state = STATE_BYPASS;
 	 }
+#else /* URC_ID!=0 */
+	 state = STATE_PASSTHROUGH;
 #endif /* URC_ID!=0 */
     }
    }
