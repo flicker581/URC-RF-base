@@ -243,8 +243,8 @@ static void printdebug(uint32_t debug) {
 	 urc_address = urc_address_tmp;
 	}
     if (header_counter == 70) { // Magic number of pulses and spaces in the header
-	 // Analyze URC address and set state accordingly
 #if URC_ID!=0
+	 // Analyze URC address and set state accordingly
 	 if ((urc_address & 0xF) == URC_ID && (urc_address & (URC_CHANNEL_MASK << 4))) {
 	  state = STATE_PASSTHROUGH;
 	 }
