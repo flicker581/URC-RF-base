@@ -1,10 +1,11 @@
 
- // Must be write before call delay.h
+ // Must be included before call delay.h
  #include <avr/io.h>
  #include <util/delay.h>
  #include <avr/interrupt.h>
+ #include <avr/eeprom.h>
  
- #define RF PB3 // RFS-250 (input) at PB3
+ #define RF PB3 // RFX-250 (input) at PB3
  #define RF_PCINT PCINT3 // Pin change interrupt
  #define RPI PB4 // Raspberry PI (output) at PB4
  
@@ -27,7 +28,6 @@
  #define URC_RF_TRAIL 9500
  #define URC_RF_GAP_TICKS US(200000)
  
- 
  #define STATE_IDLE 0
  #define STATE_HEADER 1
  #define STATE_BYPASS 20
@@ -44,11 +44,12 @@
  #define RF_ACTIVE 1
  #define RF_ACTIVE_WAITING 2
  
- //register uint8_t rf_state asm ("r2");
  volatile uint8_t rf_state;
 
- #define URC_ID 6
- #define URC_CHANNEL_MASK 0b1111111
+ // Configurable parameters
+ uint8_t EEMEM config_urc_id = 6;
+ uint8_t EEMEM config_urc_channel_mask = 0b1111111;
+
  
  ISR(TIM0_COMPA_vect) {
   // If we get here, RF_ACTIVE is not set and RF_ACTIVE_WAITING is set.
@@ -139,6 +140,12 @@ static void printdebug(uint32_t debug) {
  uint16_t urc_address;
  uint16_t urc_address_tmp=0;
  
+ uint8_t my_urc_id;
+ uint8_t my_urc_channel_mask;
+ 
+ my_urc_id = eeprom_read_byte( &config_urc_id );
+ my_urc_channel_mask = eeprom_read_byte( &config_urc_channel_mask );
+ 
  DDRB &= ~(1 << RF); // Set input direction on RF
  DDRB |= (1 << RPI); // Set output direction on RPI
  PORTB |= (1 << RPI) | (1 << RF) | (1 << PB0) | (1 << PB1) | (1 << PB2); // Output is high, input is pullup
@@ -188,6 +195,11 @@ static void printdebug(uint32_t debug) {
   // if the pulse came after long space...
   if ((last_mode == MODE_SPACE) && (out_last_length > URC_RF_GAP_TICKS)) {
    state = STATE_IDLE;
+  }
+
+  // Forced passthrough without decoding
+  if (my_urc_id == 255) {
+   state = STATE_PASSTHROUGH;
   }
 
  switch (state) {
@@ -243,18 +255,16 @@ static void printdebug(uint32_t debug) {
 	 urc_address = urc_address_tmp;
 	}
     if (header_counter == 70) { // Magic number of pulses and spaces in the header
-#if URC_ID!=0
 	 // Analyze URC address and set state accordingly
-	 if ((urc_address & 0xF) == URC_ID && (urc_address & (URC_CHANNEL_MASK << 4))) {
+	 // If my ID is 0, receive everything
+	 if (!my_urc_id || 
+	  ((urc_address & 0xF) == my_urc_id && ((urc_address >> 4) & my_urc_channel_mask))) {
 	  state = STATE_PASSTHROUGH;
 	 }
 	 else {
 	  state = STATE_BYPASS;
 	 }
-#else /* URC_ID!=0 */
-	 state = STATE_PASSTHROUGH;
-#endif /* URC_ID!=0 */
-    }
+	}
    }
    break;
   case STATE_PASSTHROUGH:
