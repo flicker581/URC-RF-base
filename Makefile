@@ -343,7 +343,7 @@ OBJDUMP = avr-objdump
 SIZE = avr-size
 AR = avr-ar rcs
 NM = avr-nm
-AVRDUDE = plink.exe -i id_dsa.ppk root@192.168.1.141 cd avr \&\& avrdude
+AVRDUDE = plink.exe root@raspi cd avr \&\& avrdude
 REMOVE = rm -f
 REMOVEDIR = rm -rf
 COPY = cp
@@ -446,7 +446,7 @@ gccversion :
 
 # Program the device.  
 program: $(TARGET).hex $(TARGET).eep
-	pscp -i id_dsa.ppk -l root $(TARGET).hex $(TARGET).eep 192.168.1.141:avr
+	pscp -l root $(TARGET).hex $(TARGET).eep raspi:avr
 	$(AVRDUDE) $(AVRDUDE_FLAGS) $(AVRDUDE_WRITE_FLASH) $(AVRDUDE_WRITE_EEPROM)
 
 
