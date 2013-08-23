@@ -47,7 +47,11 @@
  volatile uint8_t rf_state;
 
  // Configurable parameters
+ // If ID = 1..15, act as an URC base station, passing matching commands only;
+ // If ID = 0, pass all commands with header stripped;
+ // If ID = 255, pass all pulses without decoding.  
  uint8_t EEMEM config_urc_id = 6;
+ // When ID = 1..15, pass only commands with matching channels set to 1.
  uint8_t EEMEM config_urc_channel_mask = 0b1111111;
 
  
