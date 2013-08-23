@@ -31,7 +31,7 @@
  #define STATE_IDLE 0
  #define STATE_HEADER 1
  #define STATE_BYPASS 20
- #define STATE_PASSTHROUGH 21
+ #define STATE_PASSTHROUGH 0x80
  #define STATE_INVALID 100
  
  #define MODE_SPACE 0
@@ -49,6 +49,7 @@
  // Configurable parameters
  // If ID = 1..15, act as an URC base station, passing matching commands only;
  // If ID = 0, pass all commands with header stripped;
+ // If ID = 254, pass headers only.  
  // If ID = 255, pass all pulses without decoding.  
  uint8_t EEMEM config_urc_id = 6;
  // When ID = 1..15, pass only commands with matching channels set to 1.
@@ -201,12 +202,7 @@ static void printdebug(uint32_t debug) {
    state = STATE_IDLE;
   }
 
-  // Forced passthrough without decoding
-  if (my_urc_id == 255) {
-   state = STATE_PASSTHROUGH;
-  }
-
- switch (state) {
+ switch (state & ~STATE_PASSTHROUGH) {
   case STATE_IDLE:
    if (last_mode == MODE_PULSE && LEN_IN_RANGE(URC_RF_HEADER1)) {
 	 state = STATE_HEADER; // just received 1st pulse in the header
@@ -231,7 +227,7 @@ static void printdebug(uint32_t debug) {
      state = STATE_INVALID;
     }
    }
-   else { // 4..70
+   else if (header_counter < 71) { // 4..70
 	if (header_counter == 4 || header_counter == 26 || header_counter == 48) {
 	 urc_address_tmp = 1;
 	}
@@ -258,20 +254,39 @@ static void printdebug(uint32_t debug) {
 	 // save the address
 	 urc_address = urc_address_tmp;
 	}
-    if (header_counter == 70) { // Magic number of pulses and spaces in the header
-	 // Analyze URC address and set state accordingly
-	 // If my ID is 0, receive everything
-	 if (!my_urc_id || 
-	  ((urc_address & 0xF) == my_urc_id && ((urc_address >> 4) & my_urc_channel_mask))) {
-	  state = STATE_PASSTHROUGH;
-	 }
-	 else {
-	  state = STATE_BYPASS;
-	 }
+   }
+   else if (header_counter == 71) { // Magic number of pulses and spaces in the header
+	state = STATE_BYPASS;
+	// Analyze URC address and set state accordingly
+	// If my ID is 0, receive everything
+	if (!my_urc_id || 
+	 ((urc_address & 0xF) == my_urc_id && ((urc_address >> 4) & my_urc_channel_mask))) {
+	 state |= STATE_PASSTHROUGH;
 	}
    }
    break;
-  case STATE_PASSTHROUGH:
+  
+  case STATE_BYPASS:
+   break;
+   
+  }
+  
+  // Forced passthrough without decoding
+  if (my_urc_id == 255) {
+   state |= STATE_PASSTHROUGH;
+  }
+  else if (my_urc_id == 254) {
+   switch (state & ~STATE_PASSTHROUGH) {
+    case STATE_IDLE:
+	case STATE_HEADER:
+	 state |= STATE_PASSTHROUGH;
+	 break;
+	default:
+	 state &= ~STATE_PASSTHROUGH;
+   }
+  }
+
+  if (state & STATE_PASSTHROUGH) {
    switch (next_mode) {
     case MODE_SPACE: 
 	 PORTB |= _BV(RPI); // Set RPI passive (high)
@@ -280,12 +295,8 @@ static void printdebug(uint32_t debug) {
 	 PORTB &= ~_BV(RPI); // Set 0 on RPI (active low pulse)
 	 break;
    }
-  
-  case STATE_BYPASS:
-   break;
-   
   }
-  
+
   last_mode = next_mode;
  }
  
