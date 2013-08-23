@@ -1,10 +1,11 @@
 
- // Must be write before call delay.h
+ // Must be included before call delay.h
  #include <avr/io.h>
  #include <util/delay.h>
  #include <avr/interrupt.h>
+ #include <avr/eeprom.h>
  
- #define RF PB3 // RFS-250 (input) at PB3
+ #define RF PB3 // RFX-250 (input) at PB3
  #define RF_PCINT PCINT3 // Pin change interrupt
  #define RPI PB4 // Raspberry PI (output) at PB4
  
@@ -27,11 +28,10 @@
  #define URC_RF_TRAIL 9500
  #define URC_RF_GAP_TICKS US(200000)
  
- 
  #define STATE_IDLE 0
  #define STATE_HEADER 1
  #define STATE_BYPASS 20
- #define STATE_PASSTHROUGH 21
+ #define STATE_PASSTHROUGH 0x80
  #define STATE_INVALID 100
  
  #define MODE_SPACE 0
@@ -44,11 +44,17 @@
  #define RF_ACTIVE 1
  #define RF_ACTIVE_WAITING 2
  
- //register uint8_t rf_state asm ("r2");
  volatile uint8_t rf_state;
 
- #define URC_ID 6
- #define URC_CHANNEL_MASK 0b1111111
+ // Configurable parameters
+ // If ID = 1..15, act as an URC base station, passing matching commands only;
+ // If ID = 0, pass all commands with header stripped;
+ // If ID = 254, pass headers only.  
+ // If ID = 255, pass all pulses without decoding.  
+ uint8_t EEMEM config_urc_id = 6;
+ // When ID = 1..15, pass only commands with matching channels set to 1.
+ uint8_t EEMEM config_urc_channel_mask = 0b1111111;
+
  
  ISR(TIM0_COMPA_vect) {
   // If we get here, RF_ACTIVE is not set and RF_ACTIVE_WAITING is set.
@@ -139,6 +145,12 @@ static void printdebug(uint32_t debug) {
  uint16_t urc_address;
  uint16_t urc_address_tmp=0;
  
+ uint8_t my_urc_id;
+ uint8_t my_urc_channel_mask;
+ 
+ my_urc_id = eeprom_read_byte( &config_urc_id );
+ my_urc_channel_mask = eeprom_read_byte( &config_urc_channel_mask );
+ 
  DDRB &= ~(1 << RF); // Set input direction on RF
  DDRB |= (1 << RPI); // Set output direction on RPI
  PORTB |= (1 << RPI) | (1 << RF) | (1 << PB0) | (1 << PB1) | (1 << PB2); // Output is high, input is pullup
@@ -190,7 +202,7 @@ static void printdebug(uint32_t debug) {
    state = STATE_IDLE;
   }
 
- switch (state) {
+ switch (state & ~STATE_PASSTHROUGH) {
   case STATE_IDLE:
    if (last_mode == MODE_PULSE && LEN_IN_RANGE(URC_RF_HEADER1)) {
 	 state = STATE_HEADER; // just received 1st pulse in the header
@@ -215,7 +227,7 @@ static void printdebug(uint32_t debug) {
      state = STATE_INVALID;
     }
    }
-   else { // 4..70
+   else if (header_counter < 71) { // 4..70
 	if (header_counter == 4 || header_counter == 26 || header_counter == 48) {
 	 urc_address_tmp = 1;
 	}
@@ -242,22 +254,39 @@ static void printdebug(uint32_t debug) {
 	 // save the address
 	 urc_address = urc_address_tmp;
 	}
-    if (header_counter == 70) { // Magic number of pulses and spaces in the header
-#if URC_ID!=0
-	 // Analyze URC address and set state accordingly
-	 if ((urc_address & 0xF) == URC_ID && (urc_address & (URC_CHANNEL_MASK << 4))) {
-	  state = STATE_PASSTHROUGH;
-	 }
-	 else {
-	  state = STATE_BYPASS;
-	 }
-#else /* URC_ID!=0 */
-	 state = STATE_PASSTHROUGH;
-#endif /* URC_ID!=0 */
-    }
+   }
+   else if (header_counter == 71) { // Magic number of pulses and spaces in the header
+	state = STATE_BYPASS;
+	// Analyze URC address and set state accordingly
+	// If my ID is 0, receive everything
+	if (!my_urc_id || 
+	 ((urc_address & 0xF) == my_urc_id && ((urc_address >> 4) & my_urc_channel_mask))) {
+	 state |= STATE_PASSTHROUGH;
+	}
    }
    break;
-  case STATE_PASSTHROUGH:
+  
+  case STATE_BYPASS:
+   break;
+   
+  }
+  
+  // Forced passthrough without decoding
+  if (my_urc_id == 255) {
+   state |= STATE_PASSTHROUGH;
+  }
+  else if (my_urc_id == 254) {
+   switch (state & ~STATE_PASSTHROUGH) {
+    case STATE_IDLE:
+	case STATE_HEADER:
+	 state |= STATE_PASSTHROUGH;
+	 break;
+	default:
+	 state &= ~STATE_PASSTHROUGH;
+   }
+  }
+
+  if (state & STATE_PASSTHROUGH) {
    switch (next_mode) {
     case MODE_SPACE: 
 	 PORTB |= _BV(RPI); // Set RPI passive (high)
@@ -266,12 +295,8 @@ static void printdebug(uint32_t debug) {
 	 PORTB &= ~_BV(RPI); // Set 0 on RPI (active low pulse)
 	 break;
    }
-  
-  case STATE_BYPASS:
-   break;
-   
   }
-  
+
   last_mode = next_mode;
  }
  
