@@ -1,7 +1,7 @@
 URC-RF-base
 ===========
 
-Tool to receive RF commands from Universal Control Remote and translate it for Lirc.
+Tool to receive RF commands from Universal Remote Control's remote and translate it for Lirc.
 
 
 Summary
