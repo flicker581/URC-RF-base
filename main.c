@@ -63,9 +63,19 @@
  }
 
  ISR(TIM0_COMPB_vect) {
-  // This states the end of the pulse.
-  rf_state = 0; // reset all flags, ever.
-  TIMSK0 &= ~(_BV(OCIE0A) | _BV(OCIE0B)); // And disable further interrupts.
+  if ( PINB & _BV(RF) ) {
+   _delay_us(0.5); // PCIF is asserted after some delay (3 clock periods by datasheet)
+   // If it is not asserted now, pin state has not changed for a while
+   if ( !(GIFR & _BV(PCIF)) ) { // 
+    // This states the end of the pulse.
+    rf_state = 0; // reset all flags, ever.
+    TIMSK0 &= ~(_BV(OCIE0A) | _BV(OCIE0B)); // And disable further interrupts.
+   }
+  }
+  else {
+   // Pulse not ended! Restart the timer...
+   OCR0B = TCNT0 + OUTDELAY_TICKS;
+  }
  }
  
  
